@@ -553,8 +553,10 @@
     </div>
 
     <script>
-        // Data storage (in production, this would use localStorage)
+
+        // Data storage using localStorage
         let appData = {
+            lastReset: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
             prayers: {
                 fajr: false,
                 zuhr: false,
@@ -581,14 +583,101 @@
 
         // Initialize app
         function initApp() {
+            loadData();
+            checkDailyReset();
             updateTime();
-            loadTodayData();
             updatePrayerBubbles();
             updateTimeAllocations();
+            renderTasks();
             setupAutoReset();
             
             // Update time every second
             setInterval(updateTime, 1000);
+        }
+
+        // Check and perform daily reset if needed
+        function checkDailyReset() {
+            const today = new Date().toISOString().split('T')[0];
+            if (appData.lastReset !== today) {
+                // Archive yesterday's data
+                archiveDailyData();
+                
+                // Reset daily data
+                appData.prayers = {
+                    fajr: false,
+                    zuhr: false,
+                    asr: false,
+                    maghrib: false,
+                    isha: false
+                };
+                appData.tasks = [];
+                Object.keys(appData.timeAllocations).forEach(type => {
+                    appData.timeAllocations[type].hours = 0;
+                });
+                
+                // Update reset date
+                appData.lastReset = today;
+                saveData();
+            }
+        }
+
+        // Archive daily data to weekly storage
+        function archiveDailyData() {
+            // Archive prayers
+            appData.weeklyData.prayers.push({...appData.prayers});
+            
+            // Archive completed tasks count
+            const completedTasks = appData.tasks.filter(task => task.completed).length;
+            appData.weeklyData.tasks.push(completedTasks);
+            
+            // Archive time spent
+            Object.keys(appData.timeAllocations).forEach(type => {
+                appData.weeklyData.timeSpent[type].push(appData.timeAllocations[type].hours);
+            });
+            
+            // Check for weekly reset (every Sunday)
+            const today = new Date();
+            if (today.getDay() === 0) { // Sunday
+                resetWeeklyData();
+            }
+        }
+
+        // Reset weekly data
+        function resetWeeklyData() {
+            appData.weeklyData = {
+                prayers: [],
+                tasks: [],
+                timeSpent: { work: [], skill: [], hobby: [] }
+            };
+        }
+
+        // Load data from localStorage
+        function loadData() {
+            const savedData = localStorage.getItem('dailyTaskApp');
+            if (savedData) {
+                try {
+                    const parsed = JSON.parse(savedData);
+                    
+                    // Migrate from old structure if needed
+                    if (!parsed.lastReset) {
+                        parsed.lastReset = new Date().toISOString().split('T')[0];
+                    }
+                    
+                    appData = parsed;
+                    
+                    // Set task ID counter
+                    if (appData.tasks.length > 0) {
+                        taskIdCounter = Math.max(...appData.tasks.map(t => t.id)) + 1;
+                    }
+                } catch (e) {
+                    console.error('Error loading data:', e);
+                }
+            }
+        }
+
+        // Save data to localStorage
+        function saveData() {
+            localStorage.setItem('dailyTaskApp', JSON.stringify(appData));
         }
 
         // Update current time display
@@ -602,12 +691,6 @@
             }).format(now);
             
             document.getElementById('currentTime').textContent = pakistanTime;
-        }
-
-        // Load today's data
-        function loadTodayData() {
-            // In production, load from localStorage
-            // For demo, we'll start fresh each session
         }
 
         // Update prayer bubbles
@@ -887,12 +970,7 @@
         function setupAutoReset() {
             const now = new Date();
             
-            // Check if it's Sunday and past 11:59 PM (weekly reset)
-            if (now.getDay() === 0 && now.getHours() === 23 && now.getMinutes() === 59) {
-                resetWeeklyData();
-            }
-            
-            // Daily reset at 11:59 PM
+            // Calculate time until next reset (11:59 PM)
             const resetTime = new Date();
             resetTime.setHours(23, 59, 0, 0);
             
@@ -903,15 +981,9 @@
             const timeUntilReset = resetTime.getTime() - now.getTime();
             
             setTimeout(() => {
-                resetDailyData();
+                checkDailyReset();
                 setupAutoReset(); // Setup for next day
             }, timeUntilReset);
-        }
-
-        // Save data (in production, this would use localStorage)
-        function saveData() {
-            // localStorage.setItem('dailyTaskApp', JSON.stringify(appData));
-            // For demo purposes, data persists only during session
         }
 
         // Initialize app when page loads
@@ -933,3 +1005,4 @@
     </script>
 </body>
 </html>
+        
